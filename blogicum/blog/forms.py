@@ -45,7 +45,7 @@ class ProfileEditForm(forms.ModelForm):
         self.fields['username'].help_text = None
 
 
-class CustomPasswordChangeForm(PasswordChangeForm):
+class BlogPasswordChangeForm(PasswordChangeForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         for field in self.fields:

@@ -1,18 +1,16 @@
 from django.shortcuts import render, get_object_or_404, redirect
-from blog.models import Post, Category, Comment
-from django.utils import timezone
 from django.contrib.auth.models import User
-from django.core.paginator import Paginator
-from .forms import ProfileEditForm, CommentForm, PostForm
-from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.contrib.auth.views import LoginView
+from django.contrib.auth.decorators import login_required
 from django.urls import reverse
-from django.db.models import Count
 from django.http import Http404
+from .models import Post, Category, Comment
+from .forms import ProfileEditForm, CommentForm, PostForm
+from .utils.pagination import get_paginated_page
 
 
-class CustomLoginView(LoginView):
+class BlogLoginView(LoginView):
     def get_success_url(self):
         return reverse('blog:profile', kwargs={
             'username': self.request.user.username
@@ -20,18 +18,9 @@ class CustomLoginView(LoginView):
 
 
 def index(request):
-    post_list = Post.objects.published().select_related(
-        'author', 'category', 'location'
-    ).filter(
-        is_published=True,
-        category__is_published=True,
-        pub_date__lte=timezone.now()
-    ).annotate(
-        comment_count=Count('comments')
+    posts = Post.objects.published().with_related().with_comment_count(
     ).order_by('-pub_date')
-    paginator = Paginator(post_list, 10)
-    page_number = request.GET.get('page')
-    page_obj = paginator.get_page(page_number)
+    page_obj = get_paginated_page(posts, request)
     return render(request, 'blog/index.html', {
         'page_obj': page_obj,
     })
@@ -39,68 +28,49 @@ def index(request):
 
 def profile_view(request, username):
     profile = get_object_or_404(User, username=username)
-    posts_list = Post.objects.filter(author=profile).annotate(
-        comment_count=Count('comments')
-    ).order_by('-pub_date')
-    paginator = Paginator(posts_list, 10)
-    page_number = request.GET.get('page')
-    page_obj = paginator.get_page(page_number)
-    context = {
+    posts = profile.posts.with_comment_count().order_by('-pub_date')
+    page_obj = get_paginated_page(posts, request)
+    return render(request, 'blog/profile.html', {
         'profile': profile,
         'page_obj': page_obj,
         'user': request.user,
-    }
-    return render(request, 'blog/profile.html', context)
+    })
 
 
 @login_required
 def profile_edit_view(request):
-    if request.method == 'POST':
-        form = ProfileEditForm(request.POST, instance=request.user)
-        if form.is_valid():
-            form.save()
-            messages.success(request, 'Профиль успешно обновлен!')
-            return redirect('blog:profile', username=request.user.username)
-    else:
-        form = ProfileEditForm(instance=request.user)
-    return render(request, 'blog/user.html', {'form': form})
+    form = ProfileEditForm(request.POST or None, instance=request.user)
+    if not form.is_valid():
+        return render(request, 'blog/user.html', {'form': form})
+    form.save()
+    messages.success(request, 'Профиль успешно обновлен!')
+    return redirect('blog:profile', username=request.user.username)
 
 
 @login_required
 def create_post(request):
-    if request.method == 'POST':
-        form = PostForm(request.POST, request.FILES)
-        if form.is_valid():
-            post = form.save(commit=False)
-            post.author = request.user
-            post.save()
-            messages.success(request, 'Пост успешно создан!')
-            return redirect('blog:profile', username=request.user.username)
-    else:
-        form = PostForm()
-    return render(request, 'blog/create.html', {'form': form})
+    form = PostForm(request.POST or None, request.FILES or None)
+    if not form.is_valid():
+        return render(request, 'blog/create.html', {'form': form})
+    post = form.save(commit=False)
+    post.author = request.user
+    post.save()
+    messages.success(request, 'Пост успешно создан!')
+    return redirect('blog:profile', username=request.user.username)
 
 
 @login_required
 def post_edit(request, post_id):
     post = get_object_or_404(Post, pk=post_id)
     if request.user != post.author:
-        messages.error(
-            request, 'Вы можете редактировать только свои публикации'
-        )
+        messages.error(request, 'Вы можете редактировать только свои публикации')
         return redirect('blog:post_detail', post_id=post.id)
-    if request.method == 'POST':
-        form = PostForm(request.POST, request.FILES, instance=post)
-        if form.is_valid():
-            form.save()
-            messages.success(request, 'Публикация успешно обновлена!')
-            return redirect('blog:post_detail', post_id=post.id)
-    else:
-        form = PostForm(instance=post)
-    return render(request, 'blog/create.html', {
-        'form': form,
-        'post': post
-    })
+    form = PostForm(request.POST or None, request.FILES or None, instance=post)
+    if not form.is_valid():
+        return render(request, 'blog/create.html', {'form': form, 'post': post})
+    form.save()
+    messages.success(request, 'Публикация успешно обновлена!')
+    return redirect('blog:post_detail', post_id=post.id)
 
 
 @login_required
@@ -139,14 +109,14 @@ def delete_comment(request, post_id, comment_id):
 @login_required
 def add_comment(request, post_id):
     post = get_object_or_404(Post, pk=post_id)
-    if request.method == 'POST':
-        form = CommentForm(request.POST)
-        if form.is_valid():
-            comment = form.save(commit=False)
-            comment.post = post
-            comment.author = request.user
-            comment.save()
-            messages.success(request, 'Комментарий успешно добавлен!')
+    form = CommentForm(request.POST or None)
+    if not form.is_valid():
+        return redirect('blog:post_detail', post_id=post.id)
+    comment = form.save(commit=False)
+    comment.post = post
+    comment.author = request.user
+    comment.save()
+    messages.success(request, 'Комментарий успешно добавлен!')
     return redirect('blog:post_detail', post_id=post.id)
 
 
@@ -158,19 +128,16 @@ def edit_comment(request, post_id, comment_id):
             request, 'Вы можете редактировать только свои комментарии'
         )
         return redirect('blog:post_detail', post_id=post_id)
-    if request.method == 'POST':
-        form = CommentForm(request.POST, instance=comment)
-        if form.is_valid():
-            form.save()
-            messages.success(request, 'Комментарий успешно обновлен!')
-            return redirect('blog:post_detail', post_id=post_id)
-    else:
-        form = CommentForm(instance=comment)
-    return render(request, 'blog/comment.html', {
-        'comment': comment,
-        'form': form,
-        'post': comment.post
-    })
+    form = CommentForm(request.POST or None, instance=comment)
+    if not form.is_valid():
+        return render(request, 'blog/comment.html', {
+            'comment': comment,
+            'form': form,
+            'post': comment.post
+        })
+    form.save()
+    messages.success(request, 'Комментарий успешно обновлен!')
+    return redirect('blog:post_detail', post_id=post_id)
 
 
 def post_detail(request, post_id):
@@ -179,26 +146,18 @@ def post_detail(request, post_id):
         if not request.user.is_authenticated or request.user != post.author:
             raise Http404("Пост не найден")
     comments = post.comments.all().order_by('created_at')
-    if request.method == 'POST':
-        if not request.user.is_authenticated:
-            messages.error(
-                request, 'Для комментирования необходимо авторизоваться'
-            )
-            return redirect('blog:post_detail', post_id=post.id)
-        comment_form = CommentForm(request.POST)
-        if comment_form.is_valid():
-            comment = comment_form.save(commit=False)
-            comment.post = post
-            comment.author = request.user
-            comment.save()
-            messages.success(request, 'Ваш комментарий успешно добавлен!')
-            return redirect('blog:post_detail', post_id=post.id)
-    else:
-        comment_form = CommentForm()
+    form = CommentForm(request.POST or None)
+    if form.is_valid() and request.user.is_authenticated:
+        comment = form.save(commit=False)
+        comment.post = post
+        comment.author = request.user
+        comment.save()
+        messages.success(request, 'Ваш комментарий успешно добавлен!')
+        return redirect('blog:post_detail', post_id=post.id)
     return render(request, 'blog/detail.html', {
         'post': post,
         'comments': comments,
-        'form': comment_form
+        'form': form
     })
 
 
@@ -208,14 +167,10 @@ def category_posts(request, category_slug):
         slug=category_slug,
         is_published=True
     )
-    post_list = category.posts.published().annotate(
-        comment_count=Count('comments')
-    ).order_by('-pub_date')
-    paginator = Paginator(post_list, 10)
-    page_number = request.GET.get('page')
-    page_obj = paginator.get_page(page_number)
+    posts = category.posts.published().with_comment_count().order_by(
+        '-pub_date')
+    page_obj = get_paginated_page(posts, request)
     return render(request, 'blog/category.html', {
         'category': category,
         'page_obj': page_obj,
-        'post_list': page_obj.object_list
     })

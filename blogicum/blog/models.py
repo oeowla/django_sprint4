@@ -85,11 +85,11 @@ class Post(BaseBlog):
         help_text='Если установить дату и время в будущем — можно делать '
                   'отложенные публикации.'
     )
-    objects: Union[PostQuerySet, models.Manager] = PostQuerySet.as_manager()
-    image = models.ImageField('Фото', upload_to='birthdays_images', blank=True)
+    image = models.ImageField('Фото', upload_to='posts_images', blank=True)
+    objects = PostQuerySet.as_manager()
 
     class Meta:
-        ordering = ['created_at']
+        ordering = ['-pub_date']
         verbose_name = 'публикация'
         verbose_name_plural = 'Публикации'
         default_related_name = 'posts'
@@ -99,17 +99,17 @@ class Post(BaseBlog):
 
 
 class Comment(models.Model):
-    text = models.TextField('Текст комментария')
     post = models.ForeignKey(
         Post,
         on_delete=models.CASCADE,
         related_name='comments',
         verbose_name='Публикация'
     )
-    created_at = models.DateTimeField('Дата создания', auto_now_add=True)
     author = models.ForeignKey(
         User, on_delete=models.CASCADE, verbose_name='Автор'
     )
+    text = models.TextField('Текст комментария')
+    created_at = models.DateTimeField('Дата создания', auto_now_add=True)
 
     class Meta:
         ordering = ['created_at']
