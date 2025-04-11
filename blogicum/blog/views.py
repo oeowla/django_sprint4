@@ -63,11 +63,15 @@ def create_post(request):
 def post_edit(request, post_id):
     post = get_object_or_404(Post, pk=post_id)
     if request.user != post.author:
-        messages.error(request, 'Вы можете редактировать только свои публикации')
+        messages.error(
+            request, 'Вы можете редактировать только свои публикации'
+        )
         return redirect('blog:post_detail', post_id=post.id)
     form = PostForm(request.POST or None, request.FILES or None, instance=post)
     if not form.is_valid():
-        return render(request, 'blog/create.html', {'form': form, 'post': post})
+        return render(
+            request, 'blog/create.html', {'form': form, 'post': post}
+        )
     form.save()
     messages.success(request, 'Публикация успешно обновлена!')
     return redirect('blog:post_detail', post_id=post.id)

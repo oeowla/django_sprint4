@@ -1,5 +1,4 @@
 from django.db import models
-from typing import Union
 from django.contrib.auth import get_user_model
 from .querysets import PostQuerySet
 
