@@ -19,7 +19,7 @@ class BlogLoginView(LoginView):
 
 def index(request):
     posts = Post.objects.published().with_related().with_comment_count(
-    ).order_by('-pub_date')
+    ).order_by('-pub_date')  # Без указанной сортировки не проходят тесты :(
     page_obj = get_paginated_page(posts, request)
     return render(request, 'blog/index.html', {
         'page_obj': page_obj,
@@ -28,7 +28,8 @@ def index(request):
 
 def profile_view(request, username):
     profile = get_object_or_404(User, username=username)
-    posts = profile.posts.with_comment_count().order_by('-pub_date')
+    posts = profile.posts.with_comment_count(
+    ).order_by('-pub_date')  # Без указанной сортировки не проходят тесты :(
     page_obj = get_paginated_page(posts, request)
     return render(request, 'blog/profile.html', {
         'profile': profile,
@@ -83,15 +84,14 @@ def post_delete(request, post_id):
     if request.user != post.author:
         messages.error(request, 'Вы можете удалять только свои публикации')
         return redirect('blog:post_detail', post_id=post.id)
-    if request.method == 'POST':
-        post.delete()
-        messages.success(request, 'Публикация успешно удалена!')
-        return redirect('blog:index')
-    form = PostForm(instance=post)
-    return render(request, 'blog/create.html', {
-        'form': form,
-        'post': post
-    })
+    if request.method != 'POST':
+        form = PostForm(instance=post)
+        return render(
+            request, 'blog/create.html', {'form': form, 'post': post}
+        )
+    post.delete()
+    messages.success(request, 'Публикация успешно удалена!')
+    return redirect('blog:index')
 
 
 @login_required
@@ -100,14 +100,14 @@ def delete_comment(request, post_id, comment_id):
     if request.user != comment.author:
         messages.error(request, 'Вы можете удалять только свои комментарии')
         return redirect('blog:post_detail', post_id=post_id)
-    if request.method == 'POST':
-        comment.delete()
-        messages.success(request, 'Комментарий успешно удален!')
-        return redirect('blog:post_detail', post_id=post_id)
-    return render(request, 'blog/comment.html', {
-        'comment': comment,
-        'post': comment.post
-    })
+    if request.method != 'POST':
+        return render(request, 'blog/comment.html', {
+            'comment': comment,
+            'post': comment.post
+        })
+    comment.delete()
+    messages.success(request, 'Комментарий успешно удален!')
+    return redirect('blog:post_detail', post_id=post_id)
 
 
 @login_required
@@ -172,7 +172,7 @@ def category_posts(request, category_slug):
         is_published=True
     )
     posts = category.posts.published().with_comment_count().order_by(
-        '-pub_date')
+        '-pub_date')  # Без указанной сортировки не проходят тесты :(
     page_obj = get_paginated_page(posts, request)
     return render(request, 'blog/category.html', {
         'category': category,
